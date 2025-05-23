@@ -33,6 +33,8 @@ if not image_path:
 
 # Cargar imagen
 image = cv2.imread(image_path)
+# image.shape devuelve una tupla con las dimensiones de la matriz de imagen.
+# image.shape[:2] toma solo los dos primeros elementos de esa tupla: (alto, ancho).
 (h, w) = image.shape[:2]
 
 # Cargar modelo DNN
@@ -62,6 +64,7 @@ cv2.imshow("Caras con blur", image)
 cv2.waitKey(0)
 cv2.destroyAllWindows()
 
-output_path = image_path.replace(".", "_blurred.")
+name, ext = os.path.splitext(image_path)
+output_path = f"{name}_blurred{ext}"
 cv2.imwrite(output_path, image)
 print(f"Imagen guardada en: {output_path}")
