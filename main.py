@@ -51,6 +51,7 @@ for i in range(detections.shape[2]):
     confidence = detections[0, 0, i, 2]
     if confidence > 0.5:
         box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
+
         (x1, y1, x2, y2) = box.astype("int")
         x1, y1 = max(0, x1), max(0, y1)
         x2, y2 = min(w, x2), min(h, y2)
@@ -60,7 +61,9 @@ for i in range(detections.shape[2]):
         image[y1:y2, x1:x2] = blurred_face
 
 # Mostrar y guardar
+cv2.namedWindow("Caras con blur", cv2.WINDOW_NORMAL)
 cv2.imshow("Caras con blur", image)
+#cv2.resizeWindow("Blurred Image", 800, 600)
 cv2.waitKey(0)
 cv2.destroyAllWindows()
 
