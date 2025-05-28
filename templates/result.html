@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Resultado</title>
+</head>
+<body>
+  <h1>Imagen Procesada</h1>
+  <img src="{{ url_for('static', filename='../results/' + filename) }}" alt="Resultado" style="max-width:100%; height:auto;"><br><br>
+  <a href="{{ url_for('download', filename=filename) }}">Descargar Imagen</a><br>
+  <a href="{{ url_for('index') }}">Volver</a>
+</body>
+</html>
