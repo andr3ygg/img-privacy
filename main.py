@@ -66,29 +66,15 @@ def detect_and_blur_faces(image, net, conf_threshold=0.5, max_img_size=2000):
             face = image[y1:y2, x1:x2]
             if face.size == 0:
                 continue
+
             face_width = x2 - x1
             k = max(15, (face_width // 3) | 1)
             blurred_face = cv2.GaussianBlur(face, (k, k), 30)
             image[y1:y2, x1:x2] = blurred_face
-    
-    # Aplicar blur a todas las caras detectadas
-    for i in range(detections.shape[2]):
-        confidence = detections[0, 0, i, 2]
-        if confidence > 0.5:
-            box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
-
-            (x1, y1, x2, y2) = box.astype("int")
-            x1, y1 = max(0, x1), max(0, y1)
-            x2, y2 = min(w, x2), min(h, y2)
-
-    # Mostrar y guardar
-    cv2.namedWindow("Caras con blur", cv2.WINDOW_NORMAL)
-    cv2.imshow("Caras con blur", image)
-    #cv2.resizeWindow("Blurred Image", 800, 600)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
 
     return image
+
+
 
 def main():
     model_dir = "models"
@@ -105,6 +91,7 @@ def main():
     net = cv2.dnn.readNetFromCaffe(prototxt_path, model_path)
     output_image = detect_and_blur_faces(image, net)
 
+    cv2.namedWindow("Caras con blur", cv2.WINDOW_NORMAL)
     cv2.imshow("Caras con blur", output_image)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
@@ -113,7 +100,6 @@ def main():
     output_path = f"{name}_blurred{ext}"
     cv2.imwrite(output_path, output_image)
     print(f"Imagen guardada en: {output_path}")
-
 
 if __name__ == "__main__":
     main()
