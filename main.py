@@ -4,201 +4,197 @@ import numpy as np
 from urllib.request import urlretrieve
 from tkinter import filedialog, Tk, Button, Label, messagebox, Canvas
 from PIL import Image, ImageTk
+import pytesseract
 
 
-def download_model_files(prototxt_path, prototxt_url, model_path, model_url):
-    os.makedirs(os.path.dirname(prototxt_path), exist_ok=True)
-    if not os.path.isfile(prototxt_path):
-        print("Descargando deploy.prototxt...")
-        urlretrieve(prototxt_url, prototxt_path)
-    if not os.path.isfile(model_path):
-        print("Descargando modelo caffemodel...")
-        urlretrieve(model_url, model_path)
+class DescargadorModelos:
+    @staticmethod
+    def descargar(ruta_prototxt, url_prototxt, ruta_modelo, url_modelo):
+        os.makedirs(os.path.dirname(ruta_prototxt), exist_ok=True)
+        if not os.path.isfile(ruta_prototxt):
+            print("Descargando deploy.prototxt...")
+            urlretrieve(url_prototxt, ruta_prototxt)
+        if not os.path.isfile(ruta_modelo):
+            print("Descargando modelo caffemodel...")
+            urlretrieve(url_modelo, ruta_modelo)
 
 
-def detect_and_blur_faces(image, net, conf_threshold=0.5, max_img_size=2000):
-    (h0, w0) = image.shape[:2]
-    image_for_net = image.copy()
+class DetectorCaras:
+    def __init__(self, carpeta_modelos="models"):
+        self.url_prototxt = "https://raw.githubusercontent.com/opencv/opencv/master/samples/dnn/face_detector/deploy.prototxt"
+        self.url_modelo = "https://github.com/opencv/opencv_3rdparty/raw/dnn_samples_face_detector_20170830/res10_300x300_ssd_iter_140000.caffemodel"
+        self.ruta_prototxt = os.path.join(carpeta_modelos, "deploy.prototxt")
+        self.ruta_modelo = os.path.join(carpeta_modelos, "res10_300x300_ssd_iter_140000.caffemodel")
 
-    if max(h0, w0) > max_img_size:
-        scale = max_img_size / max(h0, w0)
-        image_for_net = cv2.resize(image, (int(w0 * scale), int(h0 * scale)))
-    else:
-        scale = 1.0
+        DescargadorModelos.descargar(self.ruta_prototxt, self.url_prototxt, self.ruta_modelo, self.url_modelo)
+        self.net = cv2.dnn.readNetFromCaffe(self.ruta_prototxt, self.ruta_modelo)
 
-    (h, w) = image_for_net.shape[:2]
-    blob = cv2.dnn.blobFromImage(cv2.resize(image_for_net, (300, 300)), 1.0,
-                                 (300, 300), (104.0, 177.0, 123.0))
-    net.setInput(blob)
-    detections = net.forward()
+    def detectar_y_desenfocar_caras(self, imagen, umbral_confianza=0.5):
+        alto0, ancho0 = imagen.shape[:2]
+        imagen_para_red = imagen.copy()
+        max_tamano = 2000
 
-    for i in range(detections.shape[2]):
-        confidence = detections[0, 0, i, 2]
-        if confidence > conf_threshold:
-            box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
-            (x1, y1, x2, y2) = box.astype("int")
-            x1, y1 = int(x1 / scale), int(y1 / scale)
-            x2, y2 = int(x2 / scale), int(y2 / scale)
-            x1, y1 = max(0, x1), max(0, y1)
-            x2, y2 = min(w0, x2), min(h0, y2)
+        if max(alto0, ancho0) > max_tamano:
+            escala = max_tamano / max(alto0, ancho0)
+            imagen_para_red = cv2.resize(imagen, (int(ancho0 * escala), int(alto0 * escala)))
+        else:
+            escala = 1.0
 
-            face = image[y1:y2, x1:x2]
-            if face.size == 0:
-                continue
-            face_area = (x2 - x1) * (y2 - y1)
-            k = max(15, int(np.sqrt(face_area) // 2) | 1)
-            blurred_face = cv2.GaussianBlur(face, (k, k), 30)
-            image[y1:y2, x1:x2] = blurred_face
+        alto, ancho = imagen_para_red.shape[:2]
+        blob = cv2.dnn.blobFromImage(cv2.resize(imagen_para_red, (300, 300)), 1.0,
+                                     (300, 300), (104.0, 177.0, 123.0))
+        self.net.setInput(blob)
+        detecciones = self.net.forward()
 
-    return image
+        for i in range(detecciones.shape[2]):
+            confianza = detecciones[0, 0, i, 2]
+            if confianza > umbral_confianza:
+                caja = detecciones[0, 0, i, 3:7] * np.array([ancho, alto, ancho, alto])
+                (x1, y1, x2, y2) = caja.astype("int")
+                x1, y1 = int(x1 / escala), int(y1 / escala)
+                x2, y2 = int(x2 / escala), int(y2 / escala)
+                x1, y1 = max(0, x1), max(0, y1)
+                x2, y2 = min(ancho0, x2), min(alto0, y2)
+
+                cara = imagen[y1:y2, x1:x2]
+                if cara.size == 0:
+                    continue
+                area_cara = (x2 - x1) * (y2 - y1)
+                k = max(15, int(np.sqrt(area_cara) // 2) | 1)
+                cara_desenfocada = cv2.GaussianBlur(cara, (k, k), 30)
+                imagen[y1:y2, x1:x2] = cara_desenfocada
+
+        return imagen
 
 
-class FaceBlurringApp:
+class DetectorTexto:
+    def __init__(self):
+        # Configuración para pytesseract: motor LSTM y modo página uniforme
+        self.config = '--oem 3 --psm 6'
+
+    def detectar_y_desenfocar_texto(self, imagen, palabras_clave=None):
+        """
+        Detecta texto con pytesseract y desenfoca áreas que contengan texto sensible.
+        palabras_clave: lista de palabras que indican texto sensible (ejemplo: 'Calle', 'Tarjeta', etc.)
+        """
+        if palabras_clave is None:
+            palabras_clave = ['Calle', 'Tarjeta', 'ID', 'Número', 'Dirección', 'Crédito', 'Pasaporte']
+
+        gris = cv2.cvtColor(imagen, cv2.COLOR_BGR2GRAY)
+
+        datos = pytesseract.image_to_data(gris, config=self.config, output_type=pytesseract.Output.DICT)
+
+        n_cajas = len(datos['level'])
+        for i in range(n_cajas):
+            texto = datos['text'][i].strip()
+            if any(palabra.lower() in texto.lower() for palabra in palabras_clave) and texto != '':
+                (x, y, w, h) = (datos['left'][i], datos['top'][i], datos['width'][i], datos['height'][i])
+                region = imagen[y:y+h, x:x+w]
+                if region.size > 0:
+                    k = max(15, (min(w, h) // 2) | 1)
+                    imagen[y:y+h, x:x+w] = cv2.GaussianBlur(region, (k, k), 30)
+
+        return imagen
+
+
+class ProcesadorImagen:
+    def __init__(self):
+        self.detector_caras = DetectorCaras()
+        self.detector_texto = DetectorTexto()
+
+    def procesar(self, imagen, desenfocar_caras=True, desenfocar_texto=True):
+        resultado = imagen.copy()
+        if desenfocar_caras:
+            resultado = self.detector_caras.detectar_y_desenfocar_caras(resultado)
+        if desenfocar_texto:
+            resultado = self.detector_texto.detectar_y_desenfocar_texto(resultado)
+        return resultado
+
+
+class AplicacionDesenfoque:
     def __init__(self, root):
         self.root = root
-        self.root.title("Detector y Desenfoque de Caras")
+        self.root.title("Detector y Desenfoque de Privacidad")
 
-        self.model_dir = "models"
-        self.prototxt_url = "https://raw.githubusercontent.com/opencv/opencv/master/samples/dnn/face_detector/deploy.prototxt"
-        self.model_url = "https://github.com/opencv/opencv_3rdparty/raw/dnn_samples_face_detector_20170830/res10_300x300_ssd_iter_140000.caffemodel"
-        self.prototxt_path = os.path.join(self.model_dir, "deploy.prototxt")
-        self.model_path = os.path.join(self.model_dir, "res10_300x300_ssd_iter_140000.caffemodel")
+        self.ruta_imagen = None
+        self.imagen_original = None
+        self.imagen_procesada = None
+        self.mostrando_original = True
+        self.procesador = ProcesadorImagen()
 
-        download_model_files(self.prototxt_path, self.prototxt_url, self.model_path, self.model_url)
-        self.net = cv2.dnn.readNetFromCaffe(self.prototxt_path, self.model_path)
+        self.etiqueta = Label(root, text="Selecciona una imagen")
+        self.etiqueta.pack()
 
-        self.image_path = None
-        self.original_image = None
-        self.processed_image = None
-        self.showing_original = True
-
-        self.manual_blur_regions = []
-
-        self.label = Label(root, text="Selecciona una imagen")
-        self.label.pack()
-
-        self.canvas = Canvas(root, width=500, height=400, cursor="cross")
+        self.canvas = Canvas(root, width=500, height=400)
         self.canvas.pack()
 
-        Button(root, text="Cargar Imagen", command=self.load_image).pack(pady=2)
-        Button(root, text="Aplicar Blur a Caras", command=self.apply_blur).pack(pady=2)
-        Button(root, text="Comparar Antes/Después", command=self.toggle_view).pack(pady=2)
-        Button(root, text="Deshacer Blur", command=self.undo_blur).pack(pady=2)
-        Button(root, text="Guardar Imagen", command=self.save_image).pack(pady=2)
+        Button(root, text="Cargar Imagen", command=self.cargar_imagen).pack(pady=2)
+        Button(root, text="Aplicar Blur a Caras y Texto", command=self.aplicar_blur).pack(pady=2)
+        Button(root, text="Comparar Antes/Después", command=self.alternar_vista).pack(pady=2)
+        Button(root, text="Deshacer Blur", command=self.deshacer_blur).pack(pady=2)
+        Button(root, text="Guardar Imagen", command=self.guardar_imagen).pack(pady=2)
 
-        self.canvas.bind("<ButtonPress-1>", self.on_mouse_down)
-        self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
-        self.canvas.bind("<ButtonRelease-1>", self.on_mouse_up)
-
-        self.rect = None
-        self.start_x = self.start_y = 0
-
-    def load_image(self):
-        path = filedialog.askopenfilename(
+    def cargar_imagen(self):
+        ruta = filedialog.askopenfilename(
             title='Selecciona una imagen',
-            filetypes=[("Image files", "*.jpg;*.jpeg;*.png")]
+            filetypes=[("Archivos de imagen", "*.jpg;*.jpeg;*.png")]
         )
-        if path:
-            self.image_path = path
-            self.original_image = cv2.imread(path)
-            self.processed_image = None
-            self.manual_blur_regions.clear()
-            self.showing_original = True
-            self.display_image(self.original_image)
+        if ruta:
+            self.ruta_imagen = ruta
+            self.imagen_original = cv2.imread(ruta)
+            self.imagen_procesada = None
+            self.mostrando_original = True
+            self.mostrar_imagen(self.imagen_original)
         else:
             messagebox.showinfo("Info", "No se seleccionó ninguna imagen.")
 
-    def display_image(self, cv2_image):
-        rgb_image = cv2.cvtColor(cv2_image, cv2.COLOR_BGR2RGB)
-        pil_image = Image.fromarray(rgb_image)
-        pil_image.thumbnail((500, 400))
-        self.tk_image = ImageTk.PhotoImage(pil_image)
+    def mostrar_imagen(self, imagen_cv):
+        rgb = cv2.cvtColor(imagen_cv, cv2.COLOR_BGR2RGB)
+        pil_img = Image.fromarray(rgb)
+        pil_img.thumbnail((500, 400))
+        self.tk_img = ImageTk.PhotoImage(pil_img)
         self.canvas.delete("all")
-        self.canvas.create_image(250, 200, image=self.tk_image)
+        self.canvas.create_image(250, 200, image=self.tk_img)
 
-    def apply_blur(self):
-        if self.original_image is not None:
-            self.processed_image = self.original_image.copy()
-            self.processed_image = detect_and_blur_faces(self.processed_image, self.net)
-            self.manual_blur_regions.clear()
-            self.showing_original = False
-            self.display_image(self.processed_image)
+    def aplicar_blur(self):
+        if self.imagen_original is not None:
+            self.imagen_procesada = self.procesador.procesar(self.imagen_original, desenfocar_caras=True, desenfocar_texto=True)
+            self.mostrando_original = False
+            self.mostrar_imagen(self.imagen_procesada)
         else:
             messagebox.showwarning("Advertencia", "Primero carga una imagen.")
 
-    def toggle_view(self):
-        if self.original_image is None:
+    def alternar_vista(self):
+        if self.imagen_original is None:
             messagebox.showwarning("Advertencia", "Primero carga una imagen.")
             return
-
-        if self.processed_image is None:
-            messagebox.showinfo("Info", "Primero aplica el blur.")
+        if self.imagen_procesada is None:
+            messagebox.showinfo("Info", "Primero aplica el desenfoque.")
             return
+        self.mostrando_original = not self.mostrando_original
+        imagen = self.imagen_original if self.mostrando_original else self.imagen_procesada
+        self.mostrar_imagen(imagen)
 
-        self.showing_original = not self.showing_original
-        img = self.original_image if self.showing_original else self.processed_image
-        self.display_image(img)
-
-    def undo_blur(self):
-        if self.original_image is not None:
-            self.processed_image = None
-            self.manual_blur_regions.clear()
-            self.showing_original = True
-            self.display_image(self.original_image)
-            messagebox.showinfo("Info", "Se ha restaurado la imagen original.")
+    def deshacer_blur(self):
+        if self.imagen_original is not None:
+            self.imagen_procesada = None
+            self.mostrando_original = True
+            self.mostrar_imagen(self.imagen_original)
+            messagebox.showinfo("Info", "Se restauró la imagen original.")
         else:
             messagebox.showwarning("Advertencia", "No hay imagen cargada.")
 
-    def save_image(self):
-        if self.processed_image is not None:
-            name, ext = os.path.splitext(self.image_path)
-            output_path = f"{name}_blurred{ext}"
-            cv2.imwrite(output_path, self.processed_image)
-            messagebox.showinfo("Guardado", f"Imagen guardada en: {output_path}")
+    def guardar_imagen(self):
+        if self.imagen_procesada is not None:
+            nombre, ext = os.path.splitext(self.ruta_imagen)
+            ruta_salida = f"{nombre}_desenfocada{ext}"
+            cv2.imwrite(ruta_salida, self.imagen_procesada)
+            messagebox.showinfo("Guardado", f"Imagen guardada en: {ruta_salida}")
         else:
             messagebox.showwarning("Advertencia", "No hay imagen procesada para guardar.")
-
-    # ----- Funciones de selección manual -----
-    def on_mouse_down(self, event):
-        if self.original_image is None:
-            return
-        self.start_x = event.x
-        self.start_y = event.y
-        self.rect = self.canvas.create_rectangle(self.start_x, self.start_y, self.start_x, self.start_y, outline="red")
-
-    def on_mouse_drag(self, event):
-        if self.rect:
-            self.canvas.coords(self.rect, self.start_x, self.start_y, event.x, event.y)
-
-    def on_mouse_up(self, event):
-        if self.rect:
-            x1, y1, x2, y2 = self.canvas.coords(self.rect)
-            self.manual_blur_regions.append((x1, y1, x2, y2))
-            self.apply_manual_blur_to_image()
-
-    def apply_manual_blur_to_image(self):
-        if self.original_image is None:
-            return
-
-        img = self.original_image.copy() if self.processed_image is None else self.processed_image.copy()
-        h_img, w_img = img.shape[:2]
-        scale_x = w_img / 500
-        scale_y = h_img / 400
-
-        for x1, y1, x2, y2 in self.manual_blur_regions:
-            ix1, iy1 = int(min(x1, x2) * scale_x), int(min(y1, y2) * scale_y)
-            ix2, iy2 = int(max(x1, x2) * scale_x), int(max(y1, y2) * scale_y)
-            roi = img[iy1:iy2, ix1:ix2]
-            if roi.size > 0:
-                k = max(15, (min(ix2 - ix1, iy2 - iy1) // 2) | 1)
-                img[iy1:iy2, ix1:ix2] = cv2.GaussianBlur(roi, (k, k), 30)
-
-        self.processed_image = img
-        self.showing_original = False
-        self.display_image(img)
 
 
 if __name__ == "__main__":
     root = Tk()
-    app = FaceBlurringApp(root)
+    app = AplicacionDesenfoque(root)
     root.mainloop()
